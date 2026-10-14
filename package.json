@@ -3,18 +3,26 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 18429",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -p 18429",
+    "pm2:start": "bash scripts/start.sh",
+    "pm2:stop": "bash scripts/stop.sh",
+    "pm2:restart": "bash scripts/restart.sh",
+    "pm2:logs": "bash scripts/logs.sh",
+    "pm2:status": "bash scripts/status.sh",
     "lint": "eslint"
   },
   "dependencies": {
+    "canvas-confetti": "^1.9.4",
+    "lucide-react": "^1.57.0",
     "next": "16.4.0",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "^4",
+    "@types/canvas-confetti": "^1.9.0",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
