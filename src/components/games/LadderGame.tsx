@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { MenuItem, RiggedConfig } from '@/types/lunch';
 import { soundEffects } from '@/utils/audio';
 import { decideWinner } from '@/utils/storage';
-import { Play, Sparkles } from 'lucide-react';
+import { Play, Sparkles, HelpCircle } from 'lucide-react';
 
 interface LadderGameProps {
   menus: MenuItem[];
@@ -19,77 +19,187 @@ interface HorizontalRung {
 
 export default function LadderGame({ menus, riggedConfig, onFinish }: LadderGameProps) {
   const [isPlaying, setIsPlaying] = useState(false);
-  const [startCol, setStartCol] = useState(0);
-  const [currentPos, setCurrentPos] = useState<{ x: number; y: number } | null>(null);
-  const [statusMessage, setStatusMessage] = useState('사다리를 타고 오늘의 운명 점심을 찾아갑니다!');
-  const [isDramaticClimb, setIsDramaticClimb] = useState(false);
+  const [selectedStartCol, setSelectedStartCol] = useState(0);
+  const [currentTracer, setCurrentTracer] = useState<{ x: number; y: number } | null>(null);
+  const [statusMessage, setStatusMessage] = useState('원하는 출발 번호를 고르고 사다리를 타보세요!');
+  const [isDramaticTurn, setIsDramaticTurn] = useState(false);
+  const [revealedCardIndex, setRevealedCardIndex] = useState<number | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const animRef = useRef<number | null>(null);
 
-  // Take up to 10 menus (or menus count)
   const activeMenus = useMemo(() => menus.slice(0, 10), [menus]);
   const numCols = activeMenus.length;
 
-  // Generate rungs or compute path to target
+  const [rungs, setRungs] = useState<HorizontalRung[]>([]);
+  const [traveledPath, setTraveledPath] = useState<{ x: number; y: number }[]>([]);
+
+  // High-DPI Canvas Rendering
+  const drawLadder = useCallback(
+    (
+      tracer: { x: number; y: number } | null,
+      ladderRungs: HorizontalRung[],
+      path: { x: number; y: number }[]
+    ) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
+      const displayW = 540;
+      const displayH = 260;
+
+      if (canvas.width !== displayW * dpr) {
+        canvas.width = displayW * dpr;
+        canvas.height = displayH * dpr;
+      }
+
+      ctx.save();
+      ctx.scale(dpr, dpr);
+
+      const topPad = 20;
+      const bottomPad = 24;
+      const ladderH = displayH - topPad - bottomPad;
+      const colSpacing = displayW / (numCols || 1);
+
+      ctx.clearRect(0, 0, displayW, displayH);
+
+      // 1. Draw Inactive Vertical Poles
+      for (let i = 0; i < numCols; i++) {
+        const x = colSpacing * i + colSpacing / 2;
+
+        ctx.beginPath();
+        ctx.moveTo(x, topPad);
+        ctx.lineTo(x, displayH - bottomPad);
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = '#334155';
+        ctx.stroke();
+
+        // Top start slot pill
+        ctx.beginPath();
+        ctx.arc(x, topPad, 9, 0, 2 * Math.PI);
+        ctx.fillStyle = i === selectedStartCol ? '#F59E0B' : '#1E293B';
+        ctx.fill();
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = i === selectedStartCol ? '#FEF08A' : '#475569';
+        ctx.stroke();
+
+        ctx.font = 'bold 10px monospace';
+        ctx.fillStyle = i === selectedStartCol ? '#000000' : '#94A3B8';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`${i + 1}`, x, topPad);
+      }
+
+      // 2. Draw Inactive Horizontal Rungs
+      ladderRungs.forEach((r) => {
+        const x1 = colSpacing * r.col + colSpacing / 2;
+        const x2 = colSpacing * (r.col + 1) + colSpacing / 2;
+        const y = topPad + r.rowY * ladderH;
+
+        ctx.beginPath();
+        ctx.moveTo(x1, y);
+        ctx.lineTo(x2, y);
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = '#475569';
+        ctx.stroke();
+      });
+
+      // 3. Draw Illuminated Glowing Traveled Trail
+      if (path.length > 1) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(path[0].x, path[0].y);
+        for (let i = 1; i < path.length; i++) {
+          ctx.lineTo(path[i].x, path[i].y);
+        }
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = '#F43F5E';
+        ctx.shadowColor = '#F43F5E';
+        ctx.shadowBlur = 12;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // 4. Draw Active Tracer Laser Head
+      if (tracer) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(tracer.x, tracer.y, 8, 0, 2 * Math.PI);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.shadowColor = '#F43F5E';
+        ctx.shadowBlur = 18;
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(tracer.x, tracer.y, 13, 0, 2 * Math.PI);
+        ctx.strokeStyle = '#F43F5E';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      ctx.restore();
+    },
+    [numCols, selectedStartCol]
+  );
+
+  useEffect(() => {
+    drawLadder(currentTracer, rungs, traveledPath);
+  }, [drawLadder, currentTracer, rungs, traveledPath]);
+
+  // Guaranteed Path Generator
   const generateLadder = useCallback(
-    (targetGoalCol: number, chosenStartCol: number, doDrama: boolean) => {
-      // Build random rungs, then simulate path from chosenStartCol
-      // If result does not match targetGoalCol, tweak rungs or retry
+    (targetGoalCol: number, startCol: number) => {
       let attempts = 0;
       let finalRungs: HorizontalRung[] = [];
 
       while (attempts < 100) {
         attempts++;
-        const rungs: HorizontalRung[] = [];
-        const levels = 8; // Number of horizontal levels
+        const candidateRungs: HorizontalRung[] = [];
+        const levels = 8;
 
         for (let lvl = 1; lvl < levels; lvl++) {
           const y = lvl / levels;
           for (let c = 0; c < numCols - 1; c++) {
-            // Chance to place rung
             if (Math.random() < 0.45) {
-              // Ensure no overlapping rungs at the exact same level & adjacent col
-              const hasAdjacent = rungs.some((r) => Math.abs(r.rowY - y) < 0.04 && Math.abs(r.col - c) <= 1);
-              if (!hasAdjacent) {
-                rungs.push({ col: c, rowY: y });
+              const hasNeighbor = candidateRungs.some(
+                (r) => Math.abs(r.rowY - y) < 0.04 && Math.abs(r.col - c) <= 1
+              );
+              if (!hasNeighbor) {
+                candidateRungs.push({ col: c, rowY: y });
               }
             }
           }
         }
 
-        // Trace from chosenStartCol to see where it lands
-        let currentCol = chosenStartCol;
-        // Sort rungs by Y
-        const sortedRungs = [...rungs].sort((a, b) => a.rowY - b.rowY);
-        for (const rung of sortedRungs) {
-          if (rung.col === currentCol) {
-            currentCol = currentCol + 1;
-          } else if (rung.col === currentCol - 1) {
-            currentCol = currentCol - 1;
-          }
+        let curr = startCol;
+        const sorted = [...candidateRungs].sort((a, b) => a.rowY - b.rowY);
+        for (const r of sorted) {
+          if (r.col === curr) curr = curr + 1;
+          else if (r.col === curr - 1) curr = curr - 1;
         }
 
-        // If it lands on targetGoalCol, we got a valid ladder!
-        if (currentCol === targetGoalCol) {
-          finalRungs = sortedRungs;
+        if (curr === targetGoalCol) {
+          finalRungs = sorted;
           break;
         }
 
-        // If at last few attempts, add a steering rung near bottom
-        if (attempts > 85) {
-          if (currentCol < targetGoalCol) {
-            // Add rungs to move right
-            for (let c = currentCol; c < targetGoalCol; c++) {
-              rungs.push({ col: c, rowY: 0.88 + (c - currentCol) * 0.02 });
+        // Tweak bottom steering rungs if needed
+        if (attempts > 80) {
+          if (curr < targetGoalCol) {
+            for (let c = curr; c < targetGoalCol; c++) {
+              candidateRungs.push({ col: c, rowY: 0.88 + (c - curr) * 0.02 });
             }
-          } else if (currentCol > targetGoalCol) {
-            // Add rungs to move left
-            for (let c = currentCol - 1; c >= targetGoalCol; c--) {
-              rungs.push({ col: c, rowY: 0.88 + (currentCol - 1 - c) * 0.02 });
+          } else if (curr > targetGoalCol) {
+            for (let c = curr - 1; c >= targetGoalCol; c--) {
+              candidateRungs.push({ col: c, rowY: 0.88 + (curr - 1 - c) * 0.02 });
             }
           }
-          finalRungs = rungs.sort((a, b) => a.rowY - b.rowY);
+          finalRungs = candidateRungs.sort((a, b) => a.rowY - b.rowY);
           break;
         }
       }
@@ -99,204 +209,98 @@ export default function LadderGame({ menus, riggedConfig, onFinish }: LadderGame
     [numCols]
   );
 
-  const [rungs, setRungs] = useState<HorizontalRung[]>([]);
-
-  // Draw ladder on canvas
-  const drawLadder = useCallback(
-    (currentCoord: { x: number; y: number } | null, ladderRungs: HorizontalRung[]) => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-
-      const w = canvas.width;
-      const h = canvas.height;
-      const topPadding = 24;
-      const bottomPadding = 36;
-      const ladderH = h - topPadding - bottomPadding;
-
-      ctx.clearRect(0, 0, w, h);
-
-      const colSpacing = w / (numCols || 1);
-
-      // Draw vertical lines
-      for (let i = 0; i < numCols; i++) {
-        const x = colSpacing * i + colSpacing / 2;
-        ctx.beginPath();
-        ctx.moveTo(x, topPadding);
-        ctx.lineTo(x, h - bottomPadding);
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = '#404040';
-        ctx.stroke();
-
-        // Top start marker
-        ctx.beginPath();
-        ctx.arc(x, topPadding, 8, 0, 2 * Math.PI);
-        ctx.fillStyle = i === startCol ? '#F59E0B' : '#525252';
-        ctx.fill();
-        ctx.strokeStyle = '#171717';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-
-        ctx.font = 'bold 9px sans-serif';
-        ctx.fillStyle = '#FFFFFF';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(`${i + 1}`, x, topPadding);
-      }
-
-      // Draw horizontal rungs
-      ladderRungs.forEach((r) => {
-        const x1 = colSpacing * r.col + colSpacing / 2;
-        const x2 = colSpacing * (r.col + 1) + colSpacing / 2;
-        const y = topPadding + r.rowY * ladderH;
-
-        ctx.beginPath();
-        ctx.moveTo(x1, y);
-        ctx.lineTo(x2, y);
-        ctx.lineWidth = 3.5;
-        ctx.strokeStyle = '#F59E0B';
-        ctx.shadowColor = 'rgba(245, 158, 11, 0.4)';
-        ctx.shadowBlur = 6;
-        ctx.stroke();
-        ctx.shadowBlur = 0;
-      });
-
-      // Draw active player glowing tracer
-      if (currentCoord) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(currentCoord.x, currentCoord.y, 11, 0, 2 * Math.PI);
-        ctx.fillStyle = '#F43F5E';
-        ctx.shadowColor = '#F43F5E';
-        ctx.shadowBlur = 18;
-        ctx.fill();
-
-        ctx.lineWidth = 2.5;
-        ctx.strokeStyle = '#FFFFFF';
-        ctx.stroke();
-
-        ctx.font = '11px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('🏃', currentCoord.x, currentCoord.y);
-        ctx.restore();
-      }
-    },
-    [numCols, startCol]
-  );
-
-  // Redraw when rungs change
-  useEffect(() => {
-    drawLadder(currentPos, rungs);
-  }, [drawLadder, currentPos, rungs]);
-
   const handleStartLadder = () => {
     if (isPlaying || activeMenus.length === 0) return;
 
     setIsPlaying(true);
-    setStatusMessage('사다리를 타고 내려가는 중...');
-
-    const chosenStart = Math.floor(Math.random() * numCols);
-    setStartCol(chosenStart);
+    setRevealedCardIndex(null);
+    setTraveledPath([]);
+    setStatusMessage('레이저가 사다리를 타고 하강합니다!');
 
     const { targetIndex, isRigged } = decideWinner(activeMenus, riggedConfig);
     const targetItem = activeMenus[targetIndex];
 
     const doDrama = (isRigged && riggedConfig.dramaticNearMiss) || Math.random() < 0.4;
-    setIsDramaticClimb(doDrama);
+    setIsDramaticTurn(doDrama);
 
-    // Generate rungs that guarantee landing on targetIndex
-    const ladderRungs = generateLadder(targetIndex, chosenStart, doDrama);
-    setRungs(ladderRungs);
+    const generatedRungs = generateLadder(targetIndex, selectedStartCol);
+    setRungs(generatedRungs);
 
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const displayW = 540;
+    const displayH = 260;
+    const topPad = 20;
+    const bottomPad = 24;
+    const ladderH = displayH - topPad - bottomPad;
+    const colSpacing = displayW / (numCols || 1);
 
-    const w = canvas.width;
-    const h = canvas.height;
-    const topPadding = 24;
-    const bottomPadding = 36;
-    const ladderH = h - topPadding - bottomPadding;
-    const colSpacing = w / (numCols || 1);
-
-    // Compute waypoints for animation:
-    // [{x, y}, {x, y}, ...]
+    // Compute waypoints
     const waypoints: { x: number; y: number }[] = [];
-    let col = chosenStart;
-    let currYRatio = 0;
+    let col = selectedStartCol;
 
     waypoints.push({
       x: colSpacing * col + colSpacing / 2,
-      y: topPadding,
+      y: topPad,
     });
 
-    ladderRungs.forEach((r) => {
+    generatedRungs.forEach((r) => {
       if (r.col === col) {
-        // Move down to rung
-        const y = topPadding + r.rowY * ladderH;
+        const y = topPad + r.rowY * ladderH;
         waypoints.push({ x: colSpacing * col + colSpacing / 2, y });
-        // Move right across rung
         col = col + 1;
         waypoints.push({ x: colSpacing * col + colSpacing / 2, y });
       } else if (r.col === col - 1) {
-        // Move down to rung
-        const y = topPadding + r.rowY * ladderH;
+        const y = topPad + r.rowY * ladderH;
         waypoints.push({ x: colSpacing * col + colSpacing / 2, y });
-        // Move left across rung
         col = col - 1;
         waypoints.push({ x: colSpacing * col + colSpacing / 2, y });
       }
     });
 
-    // Final move to bottom
     waypoints.push({
       x: colSpacing * col + colSpacing / 2,
-      y: h - bottomPadding,
+      y: displayH - bottomPad,
     });
 
-    // Animate along waypoints
-    let currentWaypointIdx = 0;
-    const totalSegments = waypoints.length - 1;
-    const duration = doDrama ? 5200 : 4200; // ms
-    const timePerSegment = duration / Math.max(totalSegments, 1);
+    const totalSegs = waypoints.length - 1;
+    const duration = doDrama ? 5400 : 4200;
+    const timePerSeg = duration / Math.max(totalSegs, 1);
     const startTime = performance.now();
+    let currentSegIdx = 0;
 
-    const step = (time: number) => {
-      const elapsed = time - startTime;
-      const segIndex = Math.min(Math.floor(elapsed / timePerSegment), totalSegments - 1);
-      const segProgress = Math.min((elapsed - segIndex * timePerSegment) / timePerSegment, 1);
+    const step = (now: number) => {
+      const elapsed = now - startTime;
+      const segIndex = Math.min(Math.floor(elapsed / timePerSeg), totalSegs - 1);
+      const segProgress = Math.min((elapsed - segIndex * timePerSeg) / timePerSeg, 1);
 
-      if (segIndex !== currentWaypointIdx) {
-        currentWaypointIdx = segIndex;
+      if (segIndex !== currentSegIdx) {
+        currentSegIdx = segIndex;
         soundEffects.playLadderStep();
       }
 
       const p0 = waypoints[segIndex];
       const p1 = waypoints[segIndex + 1] || p0;
 
-      const currentX = p0.x + (p1.x - p0.x) * segProgress;
-      const currentY = p0.y + (p1.y - p0.y) * segProgress;
+      const curX = p0.x + (p1.x - p0.x) * segProgress;
+      const curY = p0.y + (p1.y - p0.y) * segProgress;
+      const coord = { x: curX, y: curY };
 
-      const coord = { x: currentX, y: currentY };
-      setCurrentPos(coord);
-      drawLadder(coord, ladderRungs);
+      setCurrentTracer(coord);
+      setTraveledPath([...waypoints.slice(0, segIndex + 1), coord]);
 
-      // Tension message near finish
-      if (elapsed > duration * 0.75 && doDrama) {
-        setStatusMessage('옆 메뉴로 가나 싶었는데 마지막 가로줄로 극적 턴?! 😱');
+      if (elapsed > duration * 0.78 && doDrama) {
+        setStatusMessage('옆 메뉴로 빠지나 싶었는데 마지막 가로줄로 극적 턴?! 😱');
       }
 
       if (elapsed < duration) {
         animRef.current = requestAnimationFrame(step);
       } else {
         setIsPlaying(false);
-        setCurrentPos(null);
-        drawLadder(null, ladderRungs);
+        setCurrentTracer(null);
+        setRevealedCardIndex(targetIndex);
         setStatusMessage(`🎉 [${targetItem.name}] 사다리 완주 당첨!`);
         setTimeout(() => {
           onFinish(targetItem, doDrama);
-        }, 500);
+        }, 600);
       }
     };
 
@@ -311,66 +315,106 @@ export default function LadderGame({ menus, riggedConfig, onFinish }: LadderGame
 
   return (
     <div className="flex flex-col items-center p-3 sm:p-5 w-full max-w-2xl mx-auto">
-      {/* Status banner */}
+      {/* Top Banner */}
       <div className="mb-3 text-center">
-        <div className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-neutral-900 border border-neutral-800 text-xs sm:text-sm font-semibold text-rose-300">
+        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-neutral-900 border border-neutral-800 text-xs sm:text-sm font-semibold text-rose-300 shadow-md">
           <Sparkles className="w-3.5 h-3.5 text-rose-400" />
           <span>{statusMessage}</span>
         </div>
       </div>
 
       {/* Main Ladder Arena */}
-      <div className="relative w-full bg-neutral-950 border border-neutral-800 rounded-3xl p-3 sm:p-4 overflow-hidden shadow-2xl flex flex-col items-center">
-        {/* Top Start Slots */}
-        <div className="w-full flex justify-between px-1 mb-1 text-[11px] text-neutral-400 font-bold">
-          <span>출발 지점 번호 (랜덤 배치)</span>
+      <div className="relative w-full bg-gradient-to-b from-neutral-950 via-neutral-900 to-neutral-950 border border-neutral-800 rounded-3xl p-3 sm:p-5 overflow-hidden shadow-2xl flex flex-col items-center">
+        {/* Top Start Slots Selector */}
+        <div className="w-full flex items-center justify-between mb-2 px-1">
+          <span className="text-xs font-bold text-neutral-400">
+            출발 번호 선택:
+          </span>
+          <div className="flex gap-1 overflow-x-auto no-scrollbar py-1">
+            {activeMenus.map((_, idx) => (
+              <button
+                key={`start-${idx}`}
+                onClick={() => !isPlaying && setSelectedStartCol(idx)}
+                disabled={isPlaying}
+                className={`w-7 h-7 rounded-lg text-xs font-black transition-all ${
+                  selectedStartCol === idx
+                    ? 'bg-amber-400 text-neutral-950 shadow-md scale-105'
+                    : 'bg-neutral-800 text-neutral-400 hover:text-white'
+                }`}
+              >
+                {idx + 1}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* Canvas for Ladder and Paths */}
-        <div className="w-full overflow-x-auto no-scrollbar flex justify-center">
+        {/* High-DPI Canvas for Ladder Lines & Laser */}
+        <div className="w-full overflow-x-auto no-scrollbar flex justify-center py-1">
           <canvas
             ref={canvasRef}
-            width={580}
-            height={280}
-            className="w-full max-w-[580px] h-[280px] rounded-xl bg-neutral-900/60"
+            style={{ width: '100%', maxWidth: '540px', height: '260px' }}
+            className="rounded-2xl bg-neutral-950/80 border border-neutral-800/80 shadow-inner"
           />
         </div>
 
-        {/* Bottom Menus List */}
-        <div className="w-full grid grid-cols-5 sm:grid-cols-10 gap-1 mt-3 pt-3 border-t border-neutral-800">
-          {activeMenus.map((m, idx) => (
-            <div
-              key={m.id}
-              className="flex flex-col items-center justify-center p-1.5 rounded-xl bg-neutral-900 border border-neutral-800 text-center"
-              style={{ borderBottomColor: m.color, borderBottomWidth: '3px' }}
-            >
-              <span className="text-base select-none">{m.emoji}</span>
-              <span className="text-[10px] font-bold text-white mt-0.5 truncate w-full">
-                {m.name}
-              </span>
-            </div>
-          ))}
+        {/* Mystery Food Cards at the Bottom */}
+        <div className="w-full grid grid-cols-5 sm:grid-cols-10 gap-1.5 mt-3 pt-3 border-t border-neutral-800">
+          {activeMenus.map((m, idx) => {
+            const isRevealed = revealedCardIndex === idx;
+
+            return (
+              <div
+                key={m.id}
+                className={`flex flex-col items-center justify-center p-1.5 rounded-xl border text-center transition-all duration-300 ${
+                  isRevealed
+                    ? 'bg-amber-500/20 border-amber-400 scale-105 shadow-[0_0_15px_rgba(245,158,11,0.5)]'
+                    : 'bg-neutral-900/90 border-neutral-800 hover:border-neutral-700'
+                }`}
+                style={{
+                  borderBottomColor: m.color,
+                  borderBottomWidth: '3.5px',
+                }}
+              >
+                {isRevealed ? (
+                  <>
+                    <span className="text-lg animate-bounce select-none">{m.emoji}</span>
+                    <span className="text-[10px] font-black text-amber-300 mt-0.5 truncate w-full">
+                      {m.name}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <HelpCircle className="w-4 h-4 text-neutral-500 my-0.5" />
+                    <span className="text-[10px] font-bold text-neutral-400 truncate w-full">
+                      {idx + 1}번
+                    </span>
+                  </>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 
-      {/* Start Button */}
+      {/* Action Button */}
       <div className="mt-5 w-full max-w-xs">
         <button
           onClick={handleStartLadder}
           disabled={isPlaying || activeMenus.length === 0}
           className={`w-full py-3.5 px-6 rounded-2xl font-black text-base flex items-center justify-center gap-2 shadow-xl transition-all active:scale-95 ${
             isPlaying
-              ? 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
+              ? 'bg-neutral-800 text-neutral-500 cursor-not-allowed shadow-none'
               : 'bg-gradient-to-r from-rose-500 via-amber-500 to-orange-500 hover:from-rose-400 hover:to-orange-400 text-neutral-950 shadow-rose-500/25 hover:shadow-rose-500/40 hover:-translate-y-0.5'
           }`}
         >
           <Play className="w-5 h-5 fill-current" />
-          <span>{isPlaying ? '사다리 타는 중...' : '사다리 타기 시작!'}</span>
+          <span>{isPlaying ? '사다리 타는 중...' : `${selectedStartCol + 1}번에서 사다리 타기!`}</span>
         </button>
 
-        {isDramaticClimb && isPlaying && (
-          <p className="text-[11px] text-rose-400 text-center mt-2 animate-pulse">
-            ⚡ 아슬아슬 마지막 꺾임 기믹 작동 중!
+        {isDramaticTurn && isPlaying && (
+          <p className="text-[11px] text-rose-400 text-center mt-2 flex items-center justify-center gap-1 animate-pulse">
+            <Sparkles className="w-3.5 h-3.5 text-rose-400" />
+            <span>마지막 꺾임 기믹 활성화 중!</span>
           </p>
         )}
       </div>
