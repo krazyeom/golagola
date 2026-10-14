@@ -1,36 +1,94 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 🍱 골라골라 점심추천 (GolaGola Lunch)
 
-## Getting Started
+> 직장인과 모임의 점심 결정장애를 단번에 해결해주는 4가지 인터랙티브 게임 기반 점심 메뉴 추천 웹앱
 
-First, run the development server:
+---
+
+## 🌟 주요 특징
+
+1. **🎡 4가지 흥미진진한 선택 게임**
+   - **돌림판 룰렛**: 실제 회전판 같은 부드러운 감속 이징과 핀 틱킹 사운드.
+   - **선풍기 바람에 날리기**: 터보 에어제트 서큘레이터로 10장의 메뉴 종이를 날려 가장 멀리 도달한 메뉴가 승리.
+   - **카지노 슬롯머신**: 3개의 릴과 기계식 레버를 당겨 잭팟을 터뜨리는 짜릿한 손맛.
+   - **사다리 타기**: 가로선을 타고 실시간으로 움직이는 한국 전통 아미다쿠지 사다리.
+
+2. **🎯 비밀 강제 당첨 (아슬아슬 주작) 기믹**
+   - 특정 메뉴를 무조건 당첨되도록 몰래 지정 가능.
+   - 단순 고정이 아니라, **다른 라이벌 메뉴 근처에서 마지막 0.1초까지 치열하게 경합하다가 극적으로 역전 당첨**되는 영화 같은 연출 지원.
+
+3. **🍱 한국인 인기 점심 메뉴 10선 & 자유로운 커스텀**
+   - 김치찌개, 제육볶음, 돈까스, 짜장/짬뽕, 순대국밥, 된장찌개/비빔밥, 부대찌개, 수제버거, 바지락칼국수, 마라탕/쌀국수.
+   - 설정 모달에서 이모지, 메뉴명, 설명, 색상을 언제든지 수정하고 로컬 스토리지에 자동 보존.
+
+4. **🔊 Web Audio API 무의존성 사운드 & 세레머니**
+   - 별도 mp3 음원 파일 다운로드 없이 브라우저 내장 오디오 합성기로 풍부한 효과음 구현.
+   - 당첨 시 Confetti(폭죽) 애니메이션 및 팀원에게 공유할 수 있는 점심 텍스트 원클릭 클립보드 복사.
+
+---
+
+## 🚀 빠른 시작 (Getting Started)
+
+### 포트 정보
+- 기본 서비스 포트: **`18429`**
+- 접속 URL: `http://localhost:18429`
+
+### PM2 관리 명령어
+프로젝트 루트 디렉터리에 PM2 연동 스크립트가 준비되어 있습니다.
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# 1. 빌드 및 PM2 서버 시작
+npm run pm2:start
+# 또는
+bash scripts/start.sh
+
+# 2. PM2 프로세스 상태 확인
+npm run pm2:status
+# 또는
+bash scripts/status.sh
+
+# 3. 실시간 로그 확인
+npm run pm2:logs
+# 또는
+bash scripts/logs.sh
+
+# 4. 서버 재시작
+npm run pm2:restart
+# 또는
+bash scripts/restart.sh
+
+# 5. 서버 중지
+npm run pm2:stop
+# 또는
+bash scripts/stop.sh
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+---
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 📖 개발 설계 문서
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+시스템 아키텍처, 물리 시뮬레이션 공식, 컴포넌트 계층도 및 주작 엔진 동작 원리는 [**`DESIGN.md`**](./DESIGN.md)에서 자세히 확인하실 수 있습니다.
 
-## Learn More
+---
 
-To learn more about Next.js, take a look at the following resources:
+## 📁 디렉터리 구조
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```text
+├── ecosystem.config.js    # PM2 설정 파일 (포트 18429, 클러스터 모드)
+├── scripts/               # 운영용 쉘 스크립트 모음
+│   ├── build.sh           # 프로덕션 빌드 스크립트
+│   ├── start.sh           # PM2 구동 스크립트
+│   ├── stop.sh            # PM2 중지 스크립트
+│   ├── restart.sh         # PM2 재시작 스크립트
+│   ├── logs.sh            # PM2 로그 스트리밍
+│   └── status.sh          # PM2 상태 모니터링
+├── src/
+│   ├── app/               # Next.js App Router (페이지, 레이아웃)
+│   ├── components/        # UI 컴포넌트
+│   │   ├── Header.tsx     # 상단 바 & 모드 선택
+│   │   ├── ResultModal.tsx# 당첨 축하 팝업 & Confetti
+│   │   ├── SettingsModal.tsx # 메뉴 수정 및 강제 당첨 설정
+│   │   └── games/         # 4가지 게임 컴포넌트
+│   ├── types/             # 타입스크립트 인터페이스
+│   └── utils/             # 오디오 신디사이저, 로컬 스토리지
+└── DESIGN.md              # 상세 소프트웨어 개발 설계 문서
+```
