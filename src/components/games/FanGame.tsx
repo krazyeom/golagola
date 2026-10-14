@@ -125,17 +125,11 @@ export default function FanGame({ menus, riggedConfig, onFinish }: FanGameProps)
           let currentD = 0;
 
           if (doDrama && p.id === targetItem.id) {
-            // Target paper starts slower, then surges dramatically during gust
-            if (progress < 0.68) {
-              const norm = progress / 0.68;
-              currentD = finalD * 0.52 * (1 - Math.pow(1 - norm, 2));
-            } else {
-              const norm = (progress - 0.68) / 0.32;
-              const surge = Math.pow(norm, 2.2);
-              currentD = finalD * 0.52 + (finalD - finalD * 0.52) * surge;
-            }
+            // Continuous aerodynamic curve: steady acceleration, surging smoothly into lead
+            const ease = Math.pow(progress, 1.9) * 0.7 + (1 - Math.pow(1 - progress, 2.2)) * 0.3;
+            currentD = finalD * ease;
           } else if (doDrama && p.id === runnerUpItem.id) {
-            // Runner up flies out smoothly early on
+            // Runner up shoots out early, then glides
             const ease = 1 - Math.pow(1 - progress, 2.6);
             currentD = finalD * ease;
           } else {

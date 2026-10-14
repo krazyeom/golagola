@@ -276,17 +276,9 @@ export default function RouletteGame({ menus, riggedConfig, onFinish }: Roulette
       const elapsed = currentTime - startTime;
       const progress = Math.min(elapsed / duration, 1);
 
-      // Realistic heavy flywheel deceleration
-      let ease: number;
-      if (progress < 0.85) {
-        const p = progress / 0.85;
-        ease = 0.85 * (1 - Math.pow(1 - p, 3.4));
-      } else {
-        const p = (progress - 0.85) / 0.15;
-        // Suspense creep
-        const creep = 1 - Math.pow(1 - p, 2.6);
-        ease = 0.85 + 0.15 * creep;
-      }
+      // Single continuous, beautiful deceleration curve (Quartic out: 1 - (1-p)^4.2)
+      // Strictly monotonically decreasing speed, ZERO secondary kick or restart!
+      const ease = 1 - Math.pow(1 - progress, 4.2);
 
       const current = startAngle + (finalAngle - startAngle) * ease;
       rotationRef.current = current;
@@ -298,20 +290,20 @@ export default function RouletteGame({ menus, riggedConfig, onFinish }: Roulette
       // Detect peg contact
       if (currentSlice !== lastSliceIndexRef.current) {
         lastSliceIndexRef.current = currentSlice;
-        // Kick needle backwards
-        needleAngleRef.current = 18;
-        const speedFactor = Math.max(1 - progress, 0.15);
-        soundEffects.playTick(0.8 + speedFactor * 0.6, speedFactor < 0.3);
+        // Kick needle backwards proportional to remaining speed
+        const speedFactor = Math.max(1 - progress, 0.08);
+        needleAngleRef.current = 14 * Math.min(speedFactor * 1.5, 1);
+        soundEffects.playTick(0.8 + speedFactor * 0.6, speedFactor < 0.25);
       } else {
         // Needle spring recovery
-        needleAngleRef.current += (0 - needleAngleRef.current) * 0.25;
+        needleAngleRef.current += (0 - needleAngleRef.current) * 0.2;
       }
 
       setNeedleAngle(needleAngleRef.current);
       drawWheel(current, needleAngleRef.current);
 
-      if (progress > 0.88 && doDrama) {
-        setStatusText('어... 잠깐만, 옆 칸에 멈추나...?! 😱');
+      if (progress > 0.85 && doDrama) {
+        setStatusText('어... 경계선에 걸리나...?! 😱');
       }
 
       if (progress < 1) {

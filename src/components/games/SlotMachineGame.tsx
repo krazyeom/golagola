@@ -103,17 +103,17 @@ export default function SlotMachineGame({ menus, riggedConfig, onFinish }: SlotM
         curr1 = (curr1 + speed1) % stripHeight;
         setOffset1(curr1);
       } else {
-        // Decelerate and snap to target
-        curr1 += (targetOffset - (curr1 % stripHeight)) * 0.18;
-        setOffset1(curr1);
-        if (Math.abs(targetOffset - (curr1 % stripHeight)) < 1) {
+        const diff1 = (targetOffset - (curr1 % stripHeight) + stripHeight) % stripHeight;
+        if (diff1 > 2) {
+          curr1 = (curr1 + Math.max(diff1 * 0.16, 2.5)) % stripHeight;
+        } else {
           curr1 = targetOffset;
-          setOffset1(curr1);
-          if (!locked1) {
-            setLocked1(true);
-            soundEffects.playReelStop(0);
-            setStatusMessage(`첫 번째 릴: [${targetItem.name}] 적중!`);
-          }
+        }
+        setOffset1(curr1);
+        if (curr1 === targetOffset && !locked1) {
+          setLocked1(true);
+          soundEffects.playReelStop(0);
+          setStatusMessage(`첫 번째 릴: [${targetItem.name}] 적중!`);
         }
       }
 
@@ -122,16 +122,17 @@ export default function SlotMachineGame({ menus, riggedConfig, onFinish }: SlotM
         curr2 = (curr2 + speed2) % stripHeight;
         setOffset2(curr2);
       } else {
-        curr2 += (targetOffset - (curr2 % stripHeight)) * 0.18;
-        setOffset2(curr2);
-        if (Math.abs(targetOffset - (curr2 % stripHeight)) < 1) {
+        const diff2 = (targetOffset - (curr2 % stripHeight) + stripHeight) % stripHeight;
+        if (diff2 > 2) {
+          curr2 = (curr2 + Math.max(diff2 * 0.16, 2.5)) % stripHeight;
+        } else {
           curr2 = targetOffset;
-          setOffset2(curr2);
-          if (!locked2) {
-            setLocked2(true);
-            soundEffects.playReelStop(1);
-            setStatusMessage(`두 번째 릴도 [${targetItem.name}] 일치! 마지막 릴은?!`);
-          }
+        }
+        setOffset2(curr2);
+        if (curr2 === targetOffset && !locked2) {
+          setLocked2(true);
+          soundEffects.playReelStop(1);
+          setStatusMessage(`두 번째 릴도 [${targetItem.name}] 일치! 마지막 릴은?!`);
         }
       }
 
@@ -141,44 +142,44 @@ export default function SlotMachineGame({ menus, riggedConfig, onFinish }: SlotM
         setOffset3(curr3);
       } else {
         const destOffset = doDrama ? runnerUpOffset : targetOffset;
-        curr3 += (destOffset - (curr3 % stripHeight)) * 0.16;
+        const diff3 = (destOffset - (curr3 % stripHeight) + stripHeight) % stripHeight;
+        if (diff3 > 2) {
+          curr3 = (curr3 + Math.max(diff3 * 0.16, 2.5)) % stripHeight;
+        } else {
+          curr3 = destOffset;
+        }
         setOffset3(curr3);
 
-        if (Math.abs(destOffset - (curr3 % stripHeight)) < 1) {
-          curr3 = destOffset;
-          setOffset3(curr3);
+        if (curr3 === destOffset && !locked3) {
+          setLocked3(true);
 
-          if (!locked3) {
-            setLocked3(true);
+          if (doDrama) {
+            soundEffects.playNearMiss();
+            setStatusMessage('엇... 한 칸 빗나갔나?! 꽝인가...?! 😱');
 
-            if (doDrama) {
-              soundEffects.playNearMiss();
-              setStatusMessage('엇... 한 칸 빗나갔나?! 꽝인가...?! 😱');
-
-              // NUDGE Mechanic after 800ms
-              setTimeout(() => {
-                setIsNudgeActive(true);
-                soundEffects.playTick(1.8, true);
-                soundEffects.playReelStop(2);
-                setOffset3(targetOffset);
-                setStatusMessage(`⚡ 기적의 슬롯 넛지(Nudge)! [${targetItem.name}] 트리플 잭팟!`);
-
-                setTimeout(() => {
-                  setIsSpinning(false);
-                  onFinish(targetItem, true);
-                }, 600);
-              }, 850);
-            } else {
+            // NUDGE Mechanic after 800ms
+            setTimeout(() => {
+              setIsNudgeActive(true);
+              soundEffects.playTick(1.8, true);
               soundEffects.playReelStop(2);
-              setStatusMessage(`🎉 [${targetItem.name}] 3연속 잭팟 달성!`);
+              setOffset3(targetOffset);
+              setStatusMessage(`⚡ 기적의 슬롯 넛지(Nudge)! [${targetItem.name}] 트리플 잭팟!`);
 
               setTimeout(() => {
                 setIsSpinning(false);
-                onFinish(targetItem, false);
+                onFinish(targetItem, true);
               }, 600);
-            }
-            return;
+            }, 850);
+          } else {
+            soundEffects.playReelStop(2);
+            setStatusMessage(`🎉 [${targetItem.name}] 3연속 잭팟 달성!`);
+
+            setTimeout(() => {
+              setIsSpinning(false);
+              onFinish(targetItem, false);
+            }, 600);
           }
+          return;
         }
       }
 
